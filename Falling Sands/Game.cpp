@@ -3,7 +3,7 @@
 Game::Game() {
 	running = true;
 	renderer = NULL;
-	activeColor = sandColor;
+	selectedParticle = sand;
 }
 
 int Game::Execute() {
@@ -33,7 +33,6 @@ int Game::Execute() {
 		}
 
 		Render();
-		printf("%i\n", rand());
 	}
 
 	SDL_Quit();
@@ -83,22 +82,22 @@ void Game::HandleEvent(SDL_Event* e) {
 	else if (e->type == SDL_KEYDOWN) {
 		switch (e->key.keysym.sym) {
 		case SDLK_1:
-			activeColor = sandColor;
+			selectedParticle = sand;
 			break;
 		case SDLK_2:
-			activeColor = waterColor;
+			selectedParticle = water;
 			break;
 		case SDLK_3:
-			activeColor = rockColor;
+			selectedParticle = stone;
 			break;
 		case SDLK_4:
-			activeColor = woodColor;
+			selectedParticle = lava;
 			break;
 		case SDLK_5:
-			activeColor = fireColor;
+			selectedParticle = steam;
 			break;
 		case SDLK_6:
-			activeColor = steamColor;
+			//selectedParticle = 6;
 			break;
 		}
 	}
@@ -107,30 +106,51 @@ void Game::HandleEvent(SDL_Event* e) {
 void Game::Update() {
 	int index;
 	float randFloat = RandNextFloat();
-	for (int x = width - 1; x >= 0; x--) {
+	unsigned int oldTurn = turn;
+	turn ^= 1;
+
+	for (int x = 0; x < width; x++) {
 		for (int y = height - 1; y >= 0; y--) {
 			index = CoordsToIndex(x, y);
-			if (map[index] == sandColor) {
-				if (!MovePixel(x, y, x, y + 1)) {
-					if (!MovePixel(x, y, x - 1, y + 1)) {
-						MovePixel(x, y, x + 1, y + 1);
+			if (map[index] == 0) continue;
+
+			unsigned int particleType = map[index] & 0xf;
+			unsigned int particleTurn = map[index] >> 31;
+
+			// Check if we already ran the simulation this round for the particle
+			if (particleTurn == turn)
+				continue;
+
+			// Set the turn			
+			SetBit(map[index], turn, 31);
+
+			if (particleType == sand.bitmask) {
+				ApplyGravity(x, y);
+			}
+			else if (particleType == water.bitmask || particleType == lava.bitmask) {
+				if (!ApplyGravity(x, y)) {
+					if (randFloat < 0.5) {
+						if (!MovePixel(x, y, x + 1, y)) {
+							MovePixel(x, y, x - 1, y);
+						}
+					}
+					else {
+						if (!MovePixel(x, y, x - 1, y)) {
+							MovePixel(x, y, x + 1, y);
+						}
 					}
 				}
 			}
-			else if (map[index] == waterColor) {
-				if (!MovePixel(x, y, x, y + 1)) {
-					if (!MovePixel(x, y, x - 1, y + 1)) {
-						if (!MovePixel(x, y, x + 1, y + 1)) {
-							if (randFloat < 0.5) {
-								if (!MovePixel(x, y, x + 1, y)) {
-									MovePixel(x, y, x - 1, y);
-								}
-							}
-							else {
-								if (!MovePixel(x, y, x - 1, y)) {
-									MovePixel(x, y, x + 1, y);
-								}
-							}
+			else if (particleType == steam.bitmask) {
+				if (!Float(x, y)) {
+					if (randFloat < 0.5) {
+						if (!MovePixel(x, y, x + 1, y)) {
+							MovePixel(x, y, x - 1, y);
+						}
+					}
+					else {
+						if (!MovePixel(x, y, x - 1, y)) {
+							MovePixel(x, y, x + 1, y);
 						}
 					}
 				}
@@ -138,7 +158,7 @@ void Game::Update() {
 		}
 	}
 
-	for (int x = 0; x < width; x++) {
+	/*for (int x = 0; x < width; x++) {
 		for (int y = 0; y < height; y++) {
 			index = CoordsToIndex(x, y);
 			if (map[index] == steamColor) {
@@ -160,15 +180,16 @@ void Game::Update() {
 				}
 			}
 		}
-	}
+	}*/
 
 	if (input.leftMouseDown) {
-		map[CoordsToIndex(input.x, input.y)] = activeColor;
+		CreateParticle(selectedParticle, input.x, input.y);
+		/*map[CoordsToIndex(input.x, input.y)] = selectedParticle;
+		SetBit(map[CoordsToIndex(input.x, input.y)], turn, 31);*/
 	}
 	else if (input.rightMouseDown) {
-		map[CoordsToIndex(input.x, input.y)] = waterColor;
+		map[CoordsToIndex(input.x, input.y)] = 0;
 	}
-	//map[CoordsToIndex(width / 2, height / 2)] = sandColor;
 }
 
 void Game::Render() {
@@ -182,10 +203,28 @@ void Game::Render() {
 			int map_x;
 			int map_y;
 			ScreenPosToMapPos(x, y, &map_x, &map_y);
-			unsigned int c = map[map_x + map_y * width];
-			unsigned int r = (c & 0xff0000) >> 16;
-			unsigned int g = (c & 0xff00) >> 8;
-			unsigned int b = c & 0xff;
+			int c = 0;
+			int particleType = map[map_x + map_y * width] & 0xf;
+
+			if (particleType == sand.bitmask) {
+				c = sand.color;
+			}
+			else if (particleType == water.bitmask) {
+				c = water.color;
+			}
+			else if (particleType == stone.bitmask) {
+				c = stone.color;
+			}
+			else if (particleType == steam.bitmask) {
+				c = steam.color;
+			}
+			else if (particleType == lava.bitmask) {
+				c = lava.color;
+			}
+
+			int r = (c & 0xff0000) >> 16;
+			int g = (c & 0xff00) >> 8;
+			int b = c & 0xff;
 
 			SDL_SetRenderDrawColor(renderer, r, g, b, 255);
 			SDL_RenderDrawPoint(renderer, x, y);
@@ -209,16 +248,32 @@ bool Game::MovePixel(int src_x, int src_y, int target_x, int target_y)
 	int target_index = CoordsToIndex(target_x, target_y);
 
 	if (map[target_index] != 0) {
-		if (map[target_index] == waterColor && map[src_index] != waterColor && src_x == target_x && target_y > src_y) {
-			map[target_index] = map[src_index];
-			map[src_index] = waterColor;
+
+		unsigned int src_density = (map[src_index] & 0xff0000) >> 16;
+		unsigned int target_density = (map[target_index] & 0xff0000) >> 16;
+
+		if ((map[target_index] & 0xff) == lava.bitmask && (map[src_index] & 0xff) == water.bitmask) {
+			CreateParticle(steam, src_x, src_y);
+			CreateParticle(stone, target_x, target_y);
 		}
-		else if(map[target_index] == fireColor && map[src_index] == waterColor){
-			map[src_index] = steamColor;
+		else if (src_density > target_density&& src_x == target_x && target_y > src_y) {
+			unsigned int old_value = map[target_index];
+			map[target_index] = map[src_index];
+			map[src_index] = old_value;
 		}
 		else {
 			return false;
 		}
+		/*if (map[target_index] == waterColor && map[src_index] != waterColor && src_x == target_x && target_y > src_y) {
+			map[target_index] = map[src_index];
+			map[src_index] = waterColor;
+		}
+		else if (map[target_index] == fireColor && map[src_index] == waterColor) {
+			map[src_index] = steamColor;
+		}
+		else {
+			return false;
+		}*/
 	}
 	else {
 		map[target_index] = map[src_index];
@@ -239,4 +294,61 @@ inline void Game::ScreenPosToMapPos(int screen_x, int screen_y, int* map_x, int*
 inline float Game::RandNextFloat()
 {
 	return static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+}
+
+
+inline void Game::SetBit(unsigned int& value, unsigned int bitValue, int index)
+{
+	value ^= ((~(unsigned long)bitValue + 1) ^ value) & (1UL << index);
+}
+
+
+bool Game::ApplyGravity(int x, int y)
+{
+	if (MovePixel(x, y, x, y + 1))
+		return true;
+
+	float randFloat = RandNextFloat();
+
+	if (randFloat < 0.5) {
+		if (MovePixel(x, y, x - 1, y + 1))
+			return true;
+		return MovePixel(x, y, x + 1, y + 1);
+	}
+	else {
+		if (MovePixel(x, y, x + 1, y + 1))
+			return true;
+		return MovePixel(x, y, x - 1, y + 1);
+	}
+
+	return false;
+}
+
+bool Game::Float(int x, int y)
+{
+	if (MovePixel(x, y, x, y - 1))
+		return true;
+
+	float randFloat = RandNextFloat();
+
+	if (randFloat < 0.5) {
+		if (MovePixel(x, y, x - 1, y - 1))
+			return true;
+		return MovePixel(x, y, x + 1, y - 1);
+	}
+	else {
+		if (MovePixel(x, y, x + 1, y - 1))
+			return true;
+		return MovePixel(x, y, x - 1, y - 1);
+	}
+
+	return false;
+}
+
+void Game::CreateParticle(ParticleType particleType, int x, int y)
+{
+	unsigned int newParticle = particleType.bitmask;
+	SetBit(newParticle, turn, 31);
+	newParticle += particleType.density << 16;
+	map[CoordsToIndex(x, y)] = newParticle;
 }
